@@ -1,3 +1,5 @@
+#![feature(let_chains)]
+
 pub mod aapi;
 
 mod error;

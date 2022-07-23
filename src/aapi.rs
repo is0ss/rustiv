@@ -1,10 +1,15 @@
 use crate::*;
 
-use std::{io::Write, time::Duration};
+use crate::error::{ApiError, Kind::AAPI};
+use crate::utils::{IntoStr, UnwrapRef};
 
-use serde::Deserialize;
+use std::{io::Write, time::Duration};
+use std::marker::PhantomData;
+
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use reqwest::{blocking::Response, IntoUrl, Method};
 use thin_str::ThinStr;
-use reqwest::IntoUrl;
+use serde_json::Value;
 
 macro_rules! endpoint {
     ($($l:literal),*) => {
@@ -40,6 +45,90 @@ id_from_ints! {
     u32,   i32,
     u64,   i64,
     usize, isize,
+}
+
+struct PixivRequestBuilder<'a, T: ?Sized, U: IntoUrl> {
+    pixiv: &'a PixivClient,
+
+    method: Method,
+    query: &'a T,
+    url: U,
+}
+
+pub struct PixivResponse<T> {
+    res: Result<Response>,
+    _p: PhantomData<T>,
+}
+
+pub struct Unsupported;
+
+impl<'a, T: ?Sized, U: IntoUrl> PixivRequestBuilder<'a, T, U>
+where
+    T: Serialize,
+{
+    fn new(pixiv: &'a PixivClient, method: Method, url: U, query: &'a T) -> Self {
+        Self { pixiv, method, query, url }
+    }
+
+    fn send<R>(self) -> PixivResponse<R> {
+        PixivResponse::from(
+            self.pixiv.client()
+                .request(self.method, self.url)
+                .bearer_auth(self.pixiv.access_token())
+                .query(self.query)
+                .send()
+        )
+    }
+}
+
+impl<T> PixivResponse<T> {
+    pub fn raw(self) -> Result<String> {
+        self.res?.text().map_err(PixivError::from)
+    }
+
+    fn deserialize<D: DeserializeOwned>(self) -> Result<D> {
+        self.res?.json().map_err(PixivError::from)
+    }
+
+    pub fn value(self) -> Result<Value> {
+        self.deserialize()
+    }
+
+    #[inline]
+    fn parse_response(mut res: reqwest::Result<Response>) -> Result<Response> {
+        if let Ok(ref mut res) = res && res.status().is_client_error() {
+            let mut buf: Vec<u8> = vec![];
+            res.copy_to(&mut buf)?;
+
+            let err = &serde_json::from_slice::<Value>(&buf)?["error"];
+
+            let user_message = err["user_message"].unwrap_ref();
+            let message = err["message"].unwrap_ref();
+            let reason = err["reason"].unwrap_ref();
+
+            return Err(
+                PixivError::API(ApiError {
+                    kind: AAPI,
+                    code: res.status().as_u16().into(),
+                    msg:  ThinStr::new(format!("{reason}{user_message}{message}").as_str())
+                })
+            )
+        }
+
+        res.map_err(PixivError::from)
+    }
+}
+
+impl<T: DeserializeOwned> PixivResponse<T> {
+    pub fn deserialize_into(self) -> Result<T> {
+        self.deserialize()
+    }
+}
+
+impl<T> From<reqwest::Result<Response>> for PixivResponse<T> {
+    fn from(res: reqwest::Result<Response>) -> Self {
+        Self { res: Self::parse_response(res), _p: PhantomData }
+    }
 }
 
 #[derive(Debug)]
@@ -186,9 +275,9 @@ impl PixivClient {
     }
 
     pub fn download<U, W: ?Sized>(&self, url: U, writer: &mut W) -> Result<u64>
-        where
-            U: IntoUrl,
-            W: Write,
+    where
+        U: IntoUrl,
+        W: Write,
     {
         pixiv_download(self.client(), url, writer)
     }

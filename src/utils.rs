@@ -38,6 +38,16 @@ impl UnwrapDef<u16> for Value {
     }
 }
 
+pub trait UnwrapRef<T: ?Sized> {
+    fn unwrap_ref(&self) -> &T;
+}
+
+impl UnwrapRef<str> for Value {
+    fn unwrap_ref(&self) -> &str {
+        self.as_str().unwrap_or_default()
+    }
+}
+
 pub fn pixiv_download<W: ?Sized>(client: &HttpClient, url: impl IntoUrl, writer: &mut W) -> crate::Result<u64>
 where
     W: Write,
