@@ -90,10 +90,19 @@ macro_rules! error_wrapper {
     }
 }
 
-#[derive(Debug)]
-enum Kind {
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Kind {
     OAuth,
     AAPI,
+}
+
+impl From<Kind> for &str {
+    fn from(value: Kind) -> Self {
+        match value {
+            Kind::OAuth => "OAuth",
+            Kind::AAPI => "App-API",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -105,10 +114,7 @@ pub struct ApiError {
 
 impl Display for ApiError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self.kind {
-            Kind::OAuth => write!(f, "OAuth error: {} ({})", self.msg, self.code),
-            Kind::AAPI => write!(f, "App-API error: {} ({})", self.msg, self.code),
-        }
+        write!(f, "{} error: {} ({})", self.kind.into_str(), self.msg, self.code)
     }
 }
 
