@@ -65,3 +65,58 @@ pub mod crypto {
         base64::encode_config(&digest, base64::URL_SAFE_NO_PAD)
     }
 }
+
+pub mod de {
+    use super::*;
+
+    use crate::aapi::PixivId;
+
+    use serde::de::{Deserializer, Unexpected};
+    use serde::Deserialize;
+    use serde_json::Number;
+
+    impl UnwrapDef<u64> for Number {
+        fn unwrap_def(&self) -> u64 {
+            self.as_u64().unwrap_or_default()
+        }
+    }
+
+    #[cold]
+    fn unexpected(v: &Value) -> Unexpected {
+        match v {
+            Value::Null      => Unexpected::Unit,
+            Value::Bool(b)   => Unexpected::Bool(*b),
+            Value::Number(n) => Unexpected::Unsigned(n.unwrap_def()),
+            Value::String(s) => Unexpected::Str(&s),
+            Value::Array(_)  => Unexpected::Seq,
+            Value::Object(_) => Unexpected::Map,
+        }
+    }
+
+    pub fn pid<'de, D>(de: D) -> Result<PixivId, D::Error>
+    where
+        D: Deserializer<'de>
+    {
+        match Value::deserialize(de)? {
+            Value::String(s) => Ok(s.as_str().into()),
+            Value::Number(n) => Ok(n.unwrap_def().into()),
+            other => Err(serde::de::Error::invalid_type(
+                unexpected(&other),
+                &"a string or a number"
+            )),
+        }
+    }
+
+    pub fn pfps<'de, D>(de: D) -> Result<[ThinStr; 3], D::Error>
+    where
+        D: Deserializer<'de>
+    {
+        let v = Value::deserialize(de)?;
+
+        Ok([
+            v["px_16x16"].unwrap_def(),
+            v["px_50x50"].unwrap_def(),
+            v["px_170x170"].unwrap_def(),
+        ])
+    }
+}
