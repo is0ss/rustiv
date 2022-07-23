@@ -32,7 +32,7 @@ macro_rules! error_codes {
         )+}
 
         impl From<ErrorCode> for &str {
-            fn from(value: ErrorCode) -> &'static str {
+            fn from(value: ErrorCode) -> Self {
                 match value.0 {
                 $(
                     $num => casey::lower!(stringify!($konst)),
